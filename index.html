@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>忠旭的智能音乐屋</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;800&display=swap');
+        
+        :root {
+            --forest-green: #5ed29c;
+        }
+
+        body {
+            background-color: #050505;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow-x: hidden;
+            user-select: none;
+        }
+
+        .font-space { font-family: 'Space Grotesk', sans-serif; }
+
+        /* 磨砂玻璃效果 */
+        .glass-panel {
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .glass-panel-db {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* 隐藏滚动条 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 歌词遮罩 */
+        .mask-image-vertical {
+            mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+        }
+
+        /* 缩放容器 */
+        #scaling-layer {
+            transform-origin: top center;
+            transition: transform 0.3s ease;
+        }
+
+        .screen-container {
+            width: 1750px;
+            height: 1080px;
+            flex-shrink: 0;
+            position: relative;
+            background: #0a0a0a;
+            border-radius: 48px;
+            border: 16px solid #0a0a0a;
+            outline: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+            transition: all 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .screen-container.inactive {
+            opacity: 0.4;
+            filter: blur(6px);
+            transform: scale(0.96);
+        }
+
+        /* 侧边导航选中态调整 */
+        .nav-btn.active-white {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-btn.active-green {
+            background: rgba(94, 210, 156, 0.1);
+            color: var(--forest-green);
+        }
+
+        /* 亮度与音量滑块 */
+        .slider-thumb-yellow {
+            background: linear-gradient(180deg, #ffd166 0%, #ffb703 100%);
+        }
+
+        #darkveil-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            opacity: 0.4;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app" class="w-full flex justify-center">
+        <div id="total-height-container" class="relative w-full">
+            <div id="scaling-layer" class="absolute top-0 flex flex-col items-center gap-[100px] pt-[50px] pb-[50px]">
+                
+                <!-- 屏幕 1：智能中控 -->
+                <div id="screen-smart-home" class="screen-container" onclick="scrollToScreen(0)">
+                    <div class="absolute inset-0 pointer-events-none">
+                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuB6Hi5yfQEwW5v1WHF5l73A3XwrgcnKW0ABb07bGXDiUmH_hqEPNvUeKIpfx4R6z4nBPXBN3MgZEql05588iOk4CryYlt596xQQ2b13crbEM9_oMW_1EATPYgk_ZtIRUqgmO_DPSCQoJxthN4mTM4aK9TLpj2Vc0jW4b7tyCEv_cXgCPrAbqPeNBt3d940H1CbTLWB3UXUQTCuQnGOvylSD86AF8VNjmPvSdlyYjrVJ5lSqKKO764AFhq2lSfXX0UZuYCeKl-VcPrk" class="w-full h-full object-cover opacity-60">
+                        <div class="absolute inset-0 bg-gradient-to-br from-black/80 via-black/20 to-transparent"></div>
+                    </div>
+                    
+                    <div class="flex h-full p-12 gap-10 relative z-10">
+                        <!-- 侧边栏 -->
+                        <div class="sidebar-placeholder"></div>
+
+                        <div class="flex-1 flex flex-col pt-8">
+                            <header class="mb-14">
+                                <h2 class="text-6xl font-bold mb-6 font-space">忠旭的家</h2>
+                                <div class="flex items-center gap-6 text-2xl text-gray-400">
+                                    <span>23°</span><span class="w-px h-6 bg-gray-600"></span>
+                                    <span>52%</span><span class="w-px h-6 bg-gray-600"></span>
+                                    <span>AQI 38</span>
+                                </div>
+                            </header>
+
+                            <div class="grid grid-cols-5 gap-8 flex-1 pb-8">
+                                <div class="col-span-2 glass-panel-db rounded-[3rem] p-10 flex flex-col justify-between relative overflow-hidden group">
+                                    <div class="absolute inset-0 bg-gradient-to-br from-purple-900/20 to-transparent"></div>
+                                    <div class="relative z-10 flex flex-col items-center mt-4">
+                                        <div class="w-48 h-48 rounded-full border-[8px] border-white/5 flex items-center justify-center bg-black/50 mb-8 relative">
+                                            <div class="absolute w-36 h-36 rounded-full bg-gradient-to-br from-[#ff9a9e] to-[#fecfef] opacity-60 blur-md"></div>
+                                            <div class="absolute w-32 h-32 rounded-full bg-gradient-to-br from-purple-400 to-pink-300"></div>
+                                        </div>
+                                        <h3 class="text-5xl text-pink-400 mb-3" style="font-family: cursive;">Echos</h3>
+                                        <p class="text-2xl font-medium">主卧音箱</p>
+                                    </div>
+                                    <div class="flex justify-center gap-6 relative z-10 mt-6">
+                                        <button class="w-20 h-20 rounded-2xl bg-white/10 flex items-center justify-center"><i data-lucide="skip-back"></i></button>
+                                        <button class="w-20 h-20 rounded-2xl bg-white/10 flex items-center justify-center" onclick="togglePlay(event)"><i data-lucide="play" id="home-play-icon"></i></button>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-span-1 flex flex-col gap-8">
+                                    <div class="flex-1 glass-panel-db rounded-[3rem] p-8 flex flex-col items-center justify-center">
+                                        <i data-lucide="lightbulb" class="w-12 h-12 text-yellow-400 mb-4"></i>
+                                        <h4 class="text-2xl font-medium">灯光</h4>
+                                        <p class="text-gray-500">26 个设备</p>
+                                    </div>
+                                    <div class="flex-1 glass-panel-db rounded-[3rem] p-8 flex flex-col items-center justify-center">
+                                        <i data-lucide="shield" class="w-12 h-12 text-blue-400 mb-4"></i>
+                                        <h4 class="text-2xl font-medium">安防</h4>
+                                        <p class="text-gray-500">8 个在线</p>
+                                    </div>
+                                </div>
+
+                                <div class="col-span-1 flex flex-col gap-8">
+                                    <div class="flex-[2] glass-panel-db rounded-[3rem] p-6 flex flex-col items-center">
+                                        <h4 class="text-xl mb-6">亮度</h4>
+                                        <div class="flex-1 w-full bg-black/40 rounded-[2rem] relative flex items-end overflow-hidden">
+                                            <div class="w-full h-[60%] slider-thumb-yellow rounded-t-3xl rounded-b-[2rem]"></div>
+                                        </div>
+                                    </div>
+                                    <button class="h-32 glass-panel-db rounded-[2rem] flex items-center justify-center"><i data-lucide="power" class="text-gray-500"></i></button>
+                                </div>
+
+                                <div class="col-span-1 flex flex-col gap-8">
+                                    <div class="flex-[2] glass-panel-db rounded-[3rem] p-6 flex flex-col items-center justify-center text-center">
+                                        <h4 class="text-xl mb-4">温度</h4>
+                                        <div class="text-7xl font-light mb-10">26°</div>
+                                        <div class="flex flex-col gap-4 w-full px-4">
+                                            <button class="h-14 rounded-xl bg-white/5">+</button>
+                                            <button class="h-14 rounded-xl bg-white/5">-</button>
+                                        </div>
+                                    </div>
+                                    <button class="h-32 glass-panel-db rounded-[2rem] flex items-center justify-center"><i data-lucide="power" class="text-gray-500"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 屏幕 2：多媒体 -->
+                <div id="screen-multimedia" class="screen-container inactive" onclick="scrollToScreen(1)">
+                    <div class="absolute inset-0" id="veil-container">
+                        <canvas id="darkveil-canvas"></canvas>
+                        <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px]"></div>
+                    </div>
+
+                    <div class="flex h-full p-12 gap-10 relative z-10">
+                        <div class="sidebar-placeholder"></div>
+                        <div class="flex-1 flex flex-col pt-8">
+                            <header class="mb-14 flex justify-between items-center">
+                                <div class="flex gap-12 text-4xl font-bold">
+                                    <h2 class="text-white">音乐</h2>
+                                    <h2 class="text-white/30">视频</h2>
+                                    <h2 class="text-white/30">图书</h2>
+                                </div>
+                                <button class="bg-[#1db954]/20 text-[#1db954] px-8 py-4 rounded-full text-xl">QQ音乐</button>
+                            </header>
+
+                            <div class="grid grid-cols-7 gap-8 flex-1 pb-8">
+                                <div class="col-span-3 glass-panel-db rounded-[3rem] p-10 flex flex-col relative overflow-hidden bg-gradient-to-b from-blue-900/20 to-black/60">
+                                    <h3 class="text-6xl font-bold text-blue-300 mb-2">06.28</h3>
+                                    <p class="text-blue-200/50 uppercase tracking-widest mb-6">每日推荐</p>
+                                    <div class="flex-1 rounded-[2rem] overflow-hidden mb-6">
+                                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuAvI77AJLRWMSaRjhmUVmFTRvotoaONVMBVNnCStkVcAzIgA7MH1eTXfq69HGQFtP0SSl2kkC_6bf5Sxm7NC_twTqXMUzQDCcpLIffQkE3uzwLq-kb1SZFIMaYWB8B3l9xRitD91cQGhaU5EmKfpMqS-i2KYeZ1hx4NhJyxIeS4EmW2jYevTk69XmBdAe697SwdatRK5x21HuBbFbASP_WXrvWrsPOKtO9qQYqJ42cPywwQPfgnYzfONfLlmgnBbBs16ti8IR2YaWw" class="w-full h-full object-cover">
+                                    </div>
+                                    <div class="flex justify-between items-center px-4">
+                                        <button class="p-4 rounded-xl bg-white/5"><i data-lucide="shuffle"></i></button>
+                                        <button class="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center" onclick="togglePlay(event)"><i data-lucide="play" class="media-play-icon"></i></button>
+                                        <button class="p-4 rounded-xl bg-white/5"><i data-lucide="skip-forward"></i></button>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-span-2 flex flex-col gap-8">
+                                    <div class="flex-1 glass-panel-db rounded-[3rem] p-8 flex flex-col justify-center">
+                                        <h4 class="text-3xl font-bold text-[#b084f5] mb-4">1.在你身边</h4>
+                                        <div class="space-y-4 text-gray-400 text-xl">
+                                            <p>2. If I Could - 杰夫</p>
+                                            <p class="text-purple-400">3. 明天 - 凯里</p>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-4 h-40">
+                                        <div class="glass-panel-db rounded-2xl flex items-center justify-center"><i data-lucide="radio"></i></div>
+                                        <div class="glass-panel-db rounded-2xl flex items-center justify-center"><i data-lucide="cast"></i></div>
+                                    </div>
+                                </div>
+
+                                <div class="col-span-2 flex flex-col gap-8">
+                                    <div class="flex-1 rounded-[3rem] overflow-hidden"><img src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuBQU4whWN9iar1rJKnsdoNy8icWSTOAoNq2eTajrD5RwtUDP82nw1SBMIqrQ9Lx3lmyqE2sXzx13VZ1zlIj0YKsvsLmZX8sx938XS9ECgPqnLWpyplMLkOSJxD9RDhQytUg8OrR6FxZyLveQ2O8Ot8DvzIj2o8-wRJ8gFKLjVGGYh_0yCZTr3zvsxfMLxfBPkCOW4xbsU-VV1zHKKwBsobj0T4_-6Gi4QR7HTJaI4gRQL_czQyqTB_fJIXiAAwyNHFRLB04AuUyE" class="w-full h-full object-cover"></div>
+                                    <div class="flex-1 rounded-[3rem] overflow-hidden"><img src="https://lh3.googleusercontent.com/aida-public/AB6AXuCiLo3_IEL-7gOUd54pg7MuwAbKDyqY2FvmYj2qCim8MB9kc_tQpoOUDYfKMmf_Vl7hBfWc7R9k9aW363TZ4qN4BC7KhlZQsRzsicq3GKZS-76wfZsjFpuD_Uv_J_P-zRm_uWzTkwCZ1ekzrw-2ucTmBYgN4iMZBBApxmbfYMp9R-4lYFAyOwI_Hf1D0pj9gHnvadQfTRYkxhjvxF3RvTCJimdZgQZhaNnLEm513OqU0twXmLq2U1JtuSq-BT7l-OoH7LO-qAH-FEA" class="w-full h-full object-cover"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 屏幕 3：音乐播放器 -->
+                <div id="screen-now-playing" class="screen-container inactive" onclick="scrollToScreen(2)">
+                    <div class="absolute inset-0" id="music-bg-container">
+                        <video id="hls-video" class="w-full h-full object-cover opacity-60" style="transform: scaleX(-1);" autoplay loop muted playsinline></video>
+                        <div class="absolute inset-0 bg-gradient-to-r from-[#070b0a] via-[#070b0a]/80 to-transparent"></div>
+                    </div>
+
+                    <header class="absolute top-0 w-full h-[100px] z-50 bg-zinc-950/40 backdrop-blur-3xl border-b border-white/10 flex justify-between items-center px-12">
+                        <span class="text-2xl font-bold text-[#5ed29c] font-space">忠旭的音乐屋</span>
+                        <div class="flex gap-4" id="scene-nav">
+                            <!-- 场景切换通过 JS 生成 -->
+                        </div>
+                        <div class="flex items-center gap-6">
+                            <i data-lucide="cast" class="text-zinc-400"></i>
+                            <div class="w-12 h-12 rounded-full border border-white/20 overflow-hidden">
+                                <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQcirCTKDoV1sY2qng9Hl6z0NdNom5CiUWa1bixUAT12hP3dbw33JNAd8RiGDj_BzV0N9iJIbSE7J1l-yWY_YofTctnGrAU4lL7bo0MIilcDt9SwEhYYjlwiiYIgiy8bSpsQzzq6iem_7uEHO11mmMGhQY9phqYMsFo88IXCoHEX3eobUJcS4fV03ZsNZ25R1rMfb6sNyHDm_HZZ2-VfxxT6pi_zhQQ3m6E_WJXuFlO1N1h_o8qjd_F48ke7Tm9JCNh1a9bekW_bF0" alt="AVATAR">
+                            </div>
+                        </div>
+                    </header>
+
+                    <aside class="absolute left-0 top-[100px] w-[160px] h-[calc(1080px-100px)] bg-zinc-950/50 backdrop-blur-2xl border-r border-white/5 flex flex-col items-center py-12 z-40">
+                        <div class="sidebar-placeholder"></div>
+                    </aside>
+
+                    <main class="absolute left-[160px] top-[100px] w-[calc(1750px-160px)] h-[calc(1080px-100px)] p-12 flex items-center justify-center">
+                        <div class="w-full h-full glass-panel rounded-[48px] border-2 border-[#5ed29c]/20 flex overflow-hidden">
+                            <div class="w-[540px] p-14 flex flex-col justify-center">
+                                <div class="relative w-[480px] h-[480px] rounded-[40px] overflow-hidden shadow-2xl mb-10">
+                                    <img id="main-album-art" src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee" class="w-full h-full object-cover">
+                                    <button class="absolute top-6 right-6 p-4 rounded-full bg-black/50 border border-white/10"><i data-lucide="heart"></i></button>
+                                </div>
+                                <div class="mb-8">
+                                    <h1 id="main-song-title" class="text-5xl font-bold mb-2">Echoes of the Forest</h1>
+                                    <p id="main-artist-name" class="text-xl text-zinc-400">SonicFlow Ambient • 空间音频</p>
+                                </div>
+                                <div class="mb-8">
+                                    <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                                        <div id="progress-bar" class="h-full bg-[#5ed29c] transition-all duration-300" style="width: 35%;"></div>
+                                    </div>
+                                    <div class="flex justify-between mt-2 text-zinc-500 font-space">
+                                        <span id="current-time">01:24</span><span>05:30</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <i data-lucide="shuffle" class="text-zinc-500"></i>
+                                    <i data-lucide="skip-back" class="w-10 h-10"></i>
+                                    <button class="w-24 h-24 rounded-full bg-[#5ed29c] flex items-center justify-center text-white shadow-xl" onclick="togglePlay(event)"><i data-lucide="pause" id="main-play-icon"></i></button>
+                                    <i data-lucide="skip-forward" class="w-10 h-10"></i>
+                                    <i data-lucide="repeat" class="text-zinc-500"></i>
+                                </div>
+                            </div>
+                            <div class="flex-1 p-16 flex flex-col justify-center mask-image-vertical space-y-12">
+                                <p class="text-5xl font-semibold text-white">I was walking down the street</p>
+                                <p class="text-3xl text-zinc-500">When out the corner of my eye</p>
+                                <p class="text-3xl text-zinc-500">I saw a pretty little thing approaching me</p>
+                                <p class="text-3xl text-zinc-500">She said, I've never seen a man</p>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- 共享的导航栏组件 (由 JS 分发到各处) -->
+    <template id="sidebar-template">
+        <nav class="flex flex-col gap-12 items-center">
+            <button class="nav-btn w-20 h-20 rounded-full flex items-center justify-center transition-all" data-target="0">
+                <i data-lucide="grid" class="w-10 h-10"></i>
+            </button>
+            <button class="nav-btn w-20 h-20 rounded-full flex items-center justify-center transition-all" data-target="1">
+                <i data-lucide="play" class="w-10 h-10"></i>
+            </button>
+            <button class="nav-btn w-20 h-20 rounded-full flex items-center justify-center transition-all" data-target="2">
+                <i data-lucide="disc-3" class="w-10 h-10"></i>
+            </button>
+            <button class="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mt-20">
+                <i data-lucide="settings" class="w-10 h-10 text-zinc-500"></i>
+            </button>
+        </nav>
+    </template>
+
+    <script type="module">
+        import { Renderer, Program, Mesh, Triangle, Vec2 } from 'https://unpkg.com/ogl';
+
+        // ================= 状态管理 =================
+        const state = {
+            currentScreen: 0,
+            isPlaying: true,
+            progress: 35,
+            activeScene: 'forest'
+        };
+
+        const SCENES = [
+            { id: 'forest', name: '晨间森林', color: '#5ed29c', img: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee', title: 'Echoes of the Forest', artist: 'SonicFlow Ambient' },
+            { id: 'party', name: '赛博派堆', color: '#d946ef', img: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17', title: 'Neon Nights & Bass', artist: 'DJ Cyberpunk' },
+            { id: 'cozy', name: '温馨炉火', color: '#fbbf24', img: 'https://images.unsplash.com/photo-1460134846237-51c777df6111', title: 'Winter Warmth', artist: 'Acoustic Guitar' },
+            { id: 'rain', name: '窗外淅沥', color: '#60a5fa', img: 'https://images.unsplash.com/photo-1534531173927-aeb928d54385', title: 'Tears in the Rain', artist: 'Lofi Hip-hop' }
+        ];
+
+        // ================= 初始化 =================
+        window.onload = () => {
+            initLucide();
+            initSidebars();
+            initScaling();
+            initHls();
+            initDarkVeil();
+            initSceneNav();
+            startProgress();
+            scrollToScreen(0);
+        };
+
+        function initLucide() {
+            lucide.createIcons();
+        }
+
+        function initSidebars() {
+            const template = document.getElementById('sidebar-template');
+            document.querySelectorAll('.sidebar-placeholder').forEach(div => {
+                div.appendChild(template.content.cloneNode(true));
+            });
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    scrollToScreen(parseInt(btn.dataset.target));
+                };
+            });
+        }
+
+        // ================= 缩放逻辑 =================
+        function initScaling() {
+            const layer = document.getElementById('scaling-layer');
+            const container = document.getElementById('total-height-container');
+            
+            const update = () => {
+                const wScale = (window.innerWidth * 0.85) / 1750;
+                const hScale = (window.innerHeight * 0.85) / 1080;
+                const scale = Math.min(wScale, hScale);
+                
+                layer.style.transform = `scale(${scale})`;
+                container.style.height = `${4720 * scale}px`;
+            };
+            
+            update();
+            window.onresize = update;
+        }
+
+        // ================= 运镜切换 =================
+        window.scrollToScreen = (index) => {
+            state.currentScreen = index;
+            const screens = document.querySelectorAll('.screen-container');
+            screens.forEach((s, i) => {
+                s.classList.toggle('inactive', i !== index);
+            });
+
+            // 更新导航栏样式
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                const target = parseInt(btn.dataset.target);
+                btn.classList.remove('active-white', 'active-green');
+                if (target === index) {
+                    if (index < 2) btn.classList.add('active-white');
+                    else btn.classList.add('active-green');
+                }
+            });
+
+            const unscaledY = 50 + index * 1180;
+            const wScale = (window.innerWidth * 0.85) / 1750;
+            const hScale = (window.innerHeight * 0.85) / 1080;
+            const scale = Math.min(wScale, hScale);
+            
+            const scaledY = unscaledY * scale;
+            const offsetY = (window.innerHeight - 1080 * scale) / 2;
+            
+            window.scrollTo({
+                top: Math.max(0, scaledY - offsetY),
+                behavior: 'smooth'
+            });
+        };
+
+        // ================= HLS 视频 =================
+        function initHls() {
+            const video = document.getElementById('hls-video');
+            const source = 'https://stream.mux.com/tLkHO1qZoaaQOUeVWo8hEBeGQfySP02EPS02BmnNFyXys.m3u8';
+            if (Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(source);
+                hls.attachMedia(video);
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = source;
+            }
+        }
+
+        // ================= 播放逻辑 =================
+        window.togglePlay = (e) => {
+            e.stopPropagation();
+            state.isPlaying = !state.isPlaying;
+            const icons = ['home-play-icon', 'main-play-icon', 'media-play-icon'];
+            icons.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.setAttribute('data-lucide', state.isPlaying ? 'pause' : 'play');
+                }
+            });
+            lucide.createIcons();
+        };
+
+        function startProgress() {
+            setInterval(() => {
+                if (state.isPlaying) {
+                    state.progress = (state.progress >= 100) ? 0 : state.progress + 0.05;
+                    document.getElementById('progress-bar').style.width = `${state.progress}%`;
+                    const seconds = Math.floor(state.progress * 3.3);
+                    const m = Math.floor(seconds / 60);
+                    const s = seconds % 60;
+                    document.getElementById('current-time').innerText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                }
+            }, 100);
+        }
+
+        // ================= 场景切换 =================
+        function initSceneNav() {
+            const nav = document.getElementById('scene-nav');
+            SCENES.forEach(s => {
+                const btn = document.createElement('button');
+                btn.className = `px-6 py-3 rounded-full font-bold flex items-center gap-2 transition-all ${s.id === 'forest' ? 'bg-[#5ed29c]/10 text-[#5ed29c]' : 'bg-white/5 text-zinc-500'}`;
+                btn.innerHTML = `<span>${s.name}</span>`;
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    changeScene(s.id);
+                };
+                nav.appendChild(btn);
+            });
+        }
+
+        function changeScene(id) {
+            state.activeScene = id;
+            const s = SCENES.find(x => x.id === id);
+            
+            // 更新 UI 颜色
+            document.getElementById('main-song-title').innerText = s.title;
+            document.getElementById('main-artist-name').innerText = s.artist;
+            document.getElementById('main-album-art').src = s.img;
+            
+            // 背景切换逻辑简化为颜色/视频可见性
+            const video = document.getElementById('hls-video');
+            video.style.display = (id === 'forest') ? 'block' : 'none';
+            document.getElementById('music-bg-container').style.background = (id === 'forest') ? 'transparent' : s.color + '22';
+        }
+
+        // ================= DarkVeil 着色器 =================
+        function initDarkVeil() {
+            const canvas = document.getElementById('darkveil-canvas');
+            const renderer = new Renderer({ canvas, alpha: true, dpr: 2 });
+            const gl = renderer.gl;
+            const geometry = new Triangle(gl);
+
+            const program = new Program(gl, {
+                vertex: vertexShader,
+                fragment: fragmentShader,
+                uniforms: {
+                    uTime: { value: 0 },
+                    uResolution: { value: new Vec2() },
+                    uHueShift: { value: 160 },
+                    uNoise: { value: 0.04 },
+                    uScan: { value: 0 },
+                    uScanFreq: { value: 0 },
+                    uWarp: { value: 0.2 }
+                }
+            });
+
+            const mesh = new Mesh(gl, { geometry, program });
+
+            const resize = () => {
+                const w = canvas.parentElement.clientWidth;
+                const h = canvas.parentElement.clientHeight;
+                renderer.setSize(w, h);
+                program.uniforms.uResolution.value.set(w, h);
+            };
+            window.addEventListener('resize', resize);
+            resize();
+
+            const loop = (t) => {
+                program.uniforms.uTime.value = t * 0.0003;
+                renderer.render({ scene: mesh });
+                requestAnimationFrame(loop);
+            };
+            requestAnimationFrame(loop);
+        }
+
+        const vertexShader = `
+            attribute vec2 position;
+            void main() { gl_Position = vec4(position, 0.0, 1.0); }
+        `;
+
+        const fragmentShader = `
+            precision highp float;
+            uniform vec2 uResolution;
+            uniform float uTime;
+            uniform float uHueShift;
+            uniform float uNoise;
+            uniform float uWarp;
+
+            float rand(vec2 c){return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453);}
+
+            vec4 sigmoid(vec4 x){return 1./(1.+exp(-x));}
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / uResolution.xy * 2. - 1.;
+                uv.y *= -1.;
+                uv += uWarp * vec2(sin(uv.y*6.28 + uTime), cos(uv.x*6.28 + uTime)) * 0.1;
+                
+                // 简化的 CPPN 风格噪声，用于演示 Veil 效果
+                float n = sin(uv.x * 3. + uTime) * cos(uv.y * 3. - uTime);
+                vec3 col = vec3(0.1, 0.2, 0.5) + n * 0.2;
+                col += (rand(uv + uTime) - 0.5) * uNoise;
+
+                gl_FragColor = vec4(col, 1.0);
+            }
+        `;
+    </script>
+</body>
+</html>
