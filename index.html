@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 修复1：添加 maximum-scale=1.0, user-scalable=no 防止移动端默认缩放导致的跳动 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>智能家居音乐座舱</title>
   
   <!-- 引入 Tailwind CSS -->
@@ -588,24 +589,46 @@
       document.getElementById('bg-video-max').src = "https://www.w3schools.com/html/mov_bbb.mp4";
     }
 
-    // ================= 缩放逻辑 =================
+    // ================= 缩放逻辑 (已修复移动端闪屏死循环) =================
     function setupResizeObserver() {
       const container = document.getElementById('scale-container');
       const safeArea = document.getElementById('safe-area');
       
+      let lastWidth = window.innerWidth;
+
       function updateScale() {
-        const widthScale = (window.innerWidth * 0.8) / 1750;
-        const heightScale = (window.innerHeight * 0.8) / 1080;
+        // 移动端边界留白稍微少一点 (0.95)，桌面端留白多一点 (0.8)
+        const ratio = window.innerWidth < 768 ? 0.95 : 0.8;
+        const widthScale = (window.innerWidth * ratio) / 1750;
+        const heightScale = (window.innerHeight * ratio) / 1080;
         const currentScale = Math.min(widthScale, heightScale);
         state.scale = currentScale;
         
         container.style.transform = `scale(${currentScale})`;
+        // 固定使用实际内容高度进行计算，避免引发 DOM 循环重排
         safeArea.style.height = `${container.scrollHeight * currentScale}px`;
       }
       
-      window.addEventListener('resize', updateScale);
-      new ResizeObserver(updateScale).observe(container);
+      window.addEventListener('resize', () => {
+        // 移动端：只响应宽度变化。防止上下滑动时浏览器地址栏收起/展开改变了 innerHeight 从而触发闪屏
+        if (window.innerWidth < 768) {
+          if (Math.abs(window.innerWidth - lastWidth) > 10) {
+            lastWidth = window.innerWidth;
+            requestAnimationFrame(updateScale);
+          }
+        } else {
+          // PC 端响应所有缩放
+          requestAnimationFrame(updateScale);
+        }
+      });
+      
+      // 【修复关键】：移除原有的 ResizeObserver，因为缩放会导致自身高度改变，从而触发无限循环
+      // new ResizeObserver(updateScale).observe(container);
+
       updateScale();
+      // 等待图片和字体加载完毕再修正一次高度
+      window.addEventListener('load', updateScale);
+      setTimeout(updateScale, 800);
     }
 
     // ================= 交互响应函数 =================
@@ -615,6 +638,7 @@
       // 1. 滚动
       const unscaledY = 50 + index * 1180; 
       const scaledY = unscaledY * state.scale;
+      // 使用动态视口高度确保计算准确
       const offsetY = (window.innerHeight - 1080 * state.scale) / 2;
       window.scrollTo({ top: Math.max(0, scaledY - offsetY), behavior: 'smooth' });
 
@@ -629,7 +653,7 @@
         }
       });
 
-      // 3. 更新导航栏高亮状态 (极其繁琐的DOM更新)
+      // 3. 更新导航栏高亮状态
       updateNavButtons();
     };
 
@@ -701,7 +725,7 @@
       const sec = Math.floor((val * 3.3) % 60).toString().padStart(2, '0');
       document.querySelectorAll('.progress-time').forEach(el => el.innerText = `${min}:${sec}`);
       
-      // 更新歌词高亮状态 (需要遍历计算)
+      // 更新歌词高亮状态
       updateLyricsHighlight();
     };
 
@@ -834,7 +858,7 @@
         }
       });
 
-      // 更新全局主题类名 (这是最繁琐的DOM遍历替换部分)
+      // 更新全局主题类名
       document.getElementById('header-title').className = `text-[26px] font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r ${scene.theme.gradientFrom} ${scene.theme.gradientTo} opacity-80 font-space transition-all duration-1000`;
       document.getElementById('modal-title').className = `text-3xl font-space font-bold mb-8 ${scene.theme.text}`;
       
@@ -845,12 +869,11 @@
       // 更新专辑阴影
       ['main', 'max'].forEach(s => {
         const el = document.getElementById(`album-container-${s}`);
-        // 移除旧阴影类
         el.className = el.className.replace(/shadow-\[0_0_15px_rgba\([^)]+\)\]/g, '');
         el.className += ` ${scene.theme.shadowLight}`;
       });
       
-      if(state.isLiked) window.toggleLike(); // 刷新点赞按钮颜色
+      if(state.isLiked) window.toggleLike(); 
     }
 
     // ================= 歌词渲染与同步 =================
@@ -876,10 +899,8 @@
         const baseClassFuture = isMax ? 'text-5xl font-normal text-zinc-500 scale-95 opacity-60' : 'text-3xl font-normal text-zinc-500 scale-95 opacity-60';
 
         mockLyrics.forEach((_, index) => {
-          // 这里为了方便，使用了 querySelectorAll 找到两边屏幕的歌词
           const els = document.querySelectorAll(`#lyrics-container-${suffix} .lyric-line-${index}`);
           els.forEach(el => {
-            // 保留基础过渡类，替换状态类
             el.className = `lyric-line-${index} transition-all duration-700 ease-in-out font-inter origin-left hover:opacity-100 cursor-pointer ` + 
               (index === activeIndex ? baseClassActive : (index < activeIndex ? baseClassPast : baseClassFuture));
           });
